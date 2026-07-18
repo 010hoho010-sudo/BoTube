@@ -4,26 +4,56 @@ const { commandsData } = require('./commands');
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
-(async () => {
-  try {
-    console.log(`⏳ بدء تسجيل ${commandsData.length} أمر...`);
+// يقارن أمر محلي بأمر مسجل عند ديسكورد (الاسم + الوصف + الخيارات)
+function isSameCommand(local, remote) {
+  if (local.name !== remote.name) return false;
+  if (local.description !== remote.description) return false;
 
-    if (GUILD_ID) {
-      // تسجيل سريع في سيرفر واحد فقط (مفيد وقت التطوير)
-      await rest.put(
-        Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-        { body: commandsData }
-      );
-      console.log('✅ تم تسجيل الأوامر في السيرفر المحدد بنجاح.');
-    } else {
-      // تسجيل عام (يظهر في كل السيرفرات، قد يأخذ حتى ساعة للظهور)
-      await rest.put(
-        Routes.applicationCommands(CLIENT_ID),
-        { body: commandsData }
-      );
-      console.log('✅ تم تسجيل الأوامر عالمياً بنجاح.');
+  const localOptions = JSON.stringify(local.options || []);
+  const remoteOptions = JSON.stringify(remote.options || []);
+  return localOptions === remoteOptions;
+}
+
+// يتحقق هل الأوامر المحلية مطابقة تماماً (نفس العدد ونفس المحتوى) للمسجلة حالياً
+function commandsMatch(localCommands, remoteCommands) {
+  if (localCommands.length !== remoteCommands.length) return false;
+
+  return localCommands.every((local) => {
+    const remote = remoteCommands.find((r) => r.name === local.name);
+    return remote && isSameCommand(local, remote);
+  });
+}
+
+async function deployCommands() {
+  try {
+    const route = GUILD_ID
+      ? Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID)
+      : Routes.applicationCommands(CLIENT_ID);
+
+    console.log('🔍 التحقق من الأوامر المسجلة حالياً...');
+    const existingCommands = await rest.get(route);
+
+    if (commandsMatch(commandsData, existingCommands)) {
+      console.log(`✅ الأوامر مسجلة ومطابقة بالفعل (${existingCommands.length} أمر) — لا حاجة لإعادة التسجيل.`);
+      return;
     }
+
+    console.log(`⏳ الأوامر غير مطابقة أو غير مكتملة، جاري تسجيل ${commandsData.length} أمر...`);
+    await rest.put(route, { body: commandsData });
+
+    console.log(
+      GUILD_ID
+        ? '✅ تم تسجيل الأوامر في السيرفر المحدد بنجاح.'
+        : '✅ تم تسجيل الأوامر عالمياً بنجاح.'
+    );
   } catch (error) {
     console.error('❌ حدث خطأ أثناء تسجيل الأوامر:', error);
   }
-})();
+}
+
+// يسمح بتشغيل الملف مباشرة (node deploy-commands.js) بنفس الطريقة القديمة
+if (require.main === module) {
+  deployCommands();
+}
+
+module.exports = { deployCommands };
